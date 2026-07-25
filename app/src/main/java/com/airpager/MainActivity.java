@@ -58,6 +58,23 @@ public class MainActivity extends AppCompatActivity implements DecodeBus.Listene
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
+		
+        TextView labelCarrier = findViewById(R.id.textCarrierLabel);
+        SeekBar seekCarrier = findViewById(R.id.seekCarrier);
+        seekCarrier.setMax(3000); // 0~3000，可覆盖大部分典型底噪场景
+        seekCarrier.setProgress(500);
+        Bell202Decoder.carrierThreshold = 500f;
+        labelCarrier.setText(String.format("载波门限: %.0f", Bell202Decoder.carrierThreshold));
+        
+        seekCarrier.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                Bell202Decoder.carrierThreshold = progress;
+                labelCarrier.setText(String.format("载波门限: %d", progress));
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
 
         Button btn = findViewById(R.id.btnToggle);
         btn.setOnClickListener(v -> {

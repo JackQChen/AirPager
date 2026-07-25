@@ -28,7 +28,19 @@
             android:padding="8dp" />
 
     </ScrollView>
+	
+    <TextView
+        android:id="@+id/textCarrierLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="载波门限: 500" />
 
+    <SeekBar
+        android:id="@+id/seekCarrier"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+		
     <TextView
         android:id="@+id/textConfidenceLabel"
         android:layout_width="match_parent"

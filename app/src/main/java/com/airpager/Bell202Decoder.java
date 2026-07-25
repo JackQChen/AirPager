@@ -6,9 +6,9 @@ public class Bell202Decoder {
     private static final float F_MARK = 1200f;
     private static final float F_SPACE = 2200f;
 
-    // 置信度阈值：强势频段能量需达到弱势频段的多少倍才算"确信"判定
-    // 设为静态字段方便Activity的SeekBar直接跨类实时调整（同进程内共享）
     public static volatile float confidenceThreshold = 2.4f;
+    // 载波门限：mark+space总能量低于这个值，判定"当前无信号"，直接跳过，不进入解码
+    public static volatile float carrierThreshold = 500f;
 
     private final int sampleRate;
     private final int samplesPerBit;
@@ -43,7 +43,17 @@ public class Bell202Decoder {
 
             if (ringFill < samplesPerBit) continue;
 
-            boolean isMark = classifyWindow();
+            float magMark = goertzelMagnitude(F_MARK);
+            float magSpace = goertzelMagnitude(F_SPACE);
+
+            // 关键新增：没有载波就直接复位，不进入任何解码逻辑
+            if (magMark + magSpace < carrierThreshold) {
+                state = ST_IDLE;
+                lastMark = true;
+                continue;
+            }
+
+            boolean isMark = classify(magMark, magSpace);
 
             switch (state) {
                 case ST_IDLE:
@@ -75,11 +85,7 @@ public class Bell202Decoder {
         }
     }
 
-    /** 带置信度判定：能量差距不够大时，保持上一次的判定结果，而不是强行翻转 */
-    private boolean classifyWindow() {
-        float magMark = goertzelMagnitude(F_MARK);
-        float magSpace = goertzelMagnitude(F_SPACE);
-
+    private boolean classify(float magMark, float magSpace) {
         float ratio;
         boolean dominantIsMark;
         if (magMark >= magSpace) {
@@ -89,10 +95,7 @@ public class Bell202Decoder {
             dominantIsMark = false;
             ratio = (magMark <= 0.0001f) ? Float.MAX_VALUE : magSpace / magMark;
         }
-
-        if (ratio < confidenceThreshold) {
-            return lastMark; // 置信度不够，沿用上一次判定
-        }
+        if (ratio < confidenceThreshold) return lastMark;
         return dominantIsMark;
     }
 
