@@ -3,8 +3,12 @@ package com.airpager;
 public class Bell202Decoder {
 
     private static final int BAUD = 1200;
-    private static final float F_MARK = 1200f;   // 逻辑1 / 空闲态
-    private static final float F_SPACE = 2200f;  // 逻辑0
+    private static final float F_MARK = 1200f;
+    private static final float F_SPACE = 2200f;
+
+    // 置信度阈值：强势频段能量需达到弱势频段的多少倍才算"确信"判定
+    // 设为静态字段方便Activity的SeekBar直接跨类实时调整（同进程内共享）
+    public static volatile float confidenceThreshold = 2.4f;
 
     private final int sampleRate;
     private final int samplesPerBit;
@@ -14,8 +18,8 @@ public class Bell202Decoder {
 
     private final DecodeBus.Listener listener;
 
-    private static final int ST_IDLE = 0; // 等待起始位（mark->space跳变）
-    private static final int ST_DATA = 1; // 采集数据位中
+    private static final int ST_IDLE = 0;
+    private static final int ST_DATA = 1;
     private int state = ST_IDLE;
 
     private int sampleCounter = 0;
@@ -30,7 +34,6 @@ public class Bell202Decoder {
         this.listener = listener;
     }
 
-    /** 持续喂入PCM采样点 */
     public void feed(short[] buf, int len) {
         for (int i = 0; i < len; i++) {
             ring[ringPos] = buf[i];
@@ -56,10 +59,10 @@ public class Bell202Decoder {
                     int targetSample = (int) ((bitsCollected + 1.5) * samplesPerBit);
                     if (sampleCounter >= targetSample) {
                         if (bitsCollected < 8) {
-                            if (isMark) byteAcc |= (1 << bitsCollected); // LSB优先
+                            if (isMark) byteAcc |= (1 << bitsCollected);
                             bitsCollected++;
                         } else {
-                            if (isMark) { // 停止位校验通过
+                            if (isMark) {
                                 char c = (char) (byteAcc & 0x7F);
                                 if (listener != null) listener.onChar(c);
                             }
@@ -72,8 +75,25 @@ public class Bell202Decoder {
         }
     }
 
+    /** 带置信度判定：能量差距不够大时，保持上一次的判定结果，而不是强行翻转 */
     private boolean classifyWindow() {
-        return goertzelMagnitude(F_MARK) >= goertzelMagnitude(F_SPACE);
+        float magMark = goertzelMagnitude(F_MARK);
+        float magSpace = goertzelMagnitude(F_SPACE);
+
+        float ratio;
+        boolean dominantIsMark;
+        if (magMark >= magSpace) {
+            dominantIsMark = true;
+            ratio = (magSpace <= 0.0001f) ? Float.MAX_VALUE : magMark / magSpace;
+        } else {
+            dominantIsMark = false;
+            ratio = (magMark <= 0.0001f) ? Float.MAX_VALUE : magSpace / magMark;
+        }
+
+        if (ratio < confidenceThreshold) {
+            return lastMark; // 置信度不够，沿用上一次判定
+        }
+        return dominantIsMark;
     }
 
     private float goertzelMagnitude(float targetFreq) {

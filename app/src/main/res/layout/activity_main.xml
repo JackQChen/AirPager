@@ -5,29 +5,47 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <Button
-        android:id="@+id/btnToggle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Start" />
-
     <TextView
         android:id="@+id/textStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
         android:text="未启动" />
 
-    <TextView
-        android:id="@+id/textOutput"
+    <ScrollView
+        android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:layout_marginTop="8dp"
-        android:background="#000000"
-        android:textColor="#00FF00"
-        android:fontFamily="monospace"
-        android:padding="8dp"
-        android:scrollbars="vertical" />
+        android:background="#000000">
+
+        <TextView
+            android:id="@+id/textOutput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#00FF00"
+            android:fontFamily="monospace"
+            android:padding="8dp" />
+
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/textConfidenceLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="置信度阈值: 2.4" />
+
+    <SeekBar
+        android:id="@+id/seekConfidence"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <Button
+        android:id="@+id/btnToggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Start" />
 
 </LinearLayout>
