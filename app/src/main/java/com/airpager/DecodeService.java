@@ -12,18 +12,27 @@ public class DecodeService extends Service {
     public static volatile boolean isRunning = false;
     public static final String ACTION_START = "START";
     public static final String ACTION_STOP = "STOP";
+    public static final String ACTION_CALIBRATE = "CALIBRATE";
     private static final String CHANNEL_ID = "airpager_channel";
 
     private Thread audioThread;
     private PowerManager.WakeLock wakeLock;
+    private volatile Bell202Decoder decoder;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent != null ? intent.getAction() : null;
+
         if (ACTION_STOP.equals(action)) {
             stopDecoding();
             return START_NOT_STICKY;
         }
+
+        if (ACTION_CALIBRATE.equals(action)) {
+            if (decoder != null) decoder.startCalibration(1000);
+            return START_STICKY;
+        }
+
         startForeground(1, buildNotification());
         startDecoding();
         return START_STICKY;
@@ -51,7 +60,7 @@ public class DecodeService extends Service {
         audioThread = new Thread(() -> {
             AudioRecord recorder = null;
             try {
-                int sampleRate = 48000; // 48000/1200 = 40，整除，方便对齐bit周期
+                int sampleRate = 48000;
                 int minBuf = AudioRecord.getMinBufferSize(
                         sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
 
@@ -70,9 +79,12 @@ public class DecodeService extends Service {
                     @Override public void onStatus(String status) {
                         main.post(() -> { if (DecodeBus.listener != null) DecodeBus.listener.onStatus(status); });
                     }
+                    @Override public void onCalibrated(float recommendedThreshold) {
+                        main.post(() -> { if (DecodeBus.listener != null) DecodeBus.listener.onCalibrated(recommendedThreshold); });
+                    }
                 };
 
-                Bell202Decoder decoder = new Bell202Decoder(sampleRate, uiProxy);
+                decoder = new Bell202Decoder(sampleRate, uiProxy);
 
                 short[] buf = new short[minBuf];
                 while (isRunning) {
@@ -86,6 +98,7 @@ public class DecodeService extends Service {
                     try { recorder.stop(); } catch (Exception ignored) {}
                     recorder.release();
                 }
+                decoder = null;
                 isRunning = false;
             }
         });
