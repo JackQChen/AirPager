@@ -6,20 +6,16 @@ public class Bell202Decoder {
     private static final float F_MARK = 1200f;
     private static final float F_SPACE = 2200f;
 
-    // 载波检测窗口带宽：只用来判断"现在有没有信号"，可以宽一点，抗噪声更好
     private static final float CARRIER_BANDWIDTH_HZ = 300f;
 
-    // bit判定窗口：严格等于一个符号周期长度(带宽=波特率)，
-    // 绝不能加宽，否则会把相邻bit的能量搅在一起(上一版的bug就在这里)
-
     private static final int ANALYSIS_STEP = 2;
-    private static final int DEBOUNCE_LEN = 3; // 窗口本来就短，去抖动不宜太长，否则引入额外延迟
+    private static final int DEBOUNCE_LEN = 3; // 只用于"待机状态下检测起始边沿"
 
     public static volatile float confidenceThreshold = 2.4f;
     public static volatile float carrierThreshold = 0.05f;
 
     private final int sampleRate;
-    private final int samplesPerBit;      // 同时也是bit判定窗口长度
+    private final int samplesPerBit;
     private final int carrierWindowSamples;
 
     private final float[] bitRing;
@@ -35,8 +31,9 @@ public class Bell202Decoder {
     private final boolean[] history;
     private int historyIdx = 0;
     private int historyMarkCount = 0;
-
     private boolean debouncedIsMark = true;
+
+    private boolean lastRawIsMark = true;
     private float lastCarrierMagMark = 0f;
     private float lastCarrierMagSpace = 0f;
 
@@ -47,8 +44,12 @@ public class Bell202Decoder {
     private int state = ST_IDLE;
 
     private int sampleCounter = 0;
-    private int bitsCollected = 0;
     private int byteAcc = 0;
+
+    // 每个bit窗口(起始位/8个数据位/停止位)内做多数投票，而不是只信一个采样瞬间
+    private int currentSlot = -1;
+    private int slotMarkVotes = 0;
+    private int slotTotalVotes = 0;
 
     private volatile boolean calibrating = false;
     private long calibrationEndAtMs = 0;
@@ -113,45 +114,63 @@ public class Bell202Decoder {
             boolean hasCarrier = (lastCarrierMagMark + lastCarrierMagSpace) >= carrierThreshold;
             if (!hasCarrier) {
                 state = ST_IDLE;
+                currentSlot = -1;
                 continue;
             }
 
-            switch (state) {
-                case ST_IDLE:
-                    if (!debouncedIsMark) {
-                        state = ST_DATA;
-                        sampleCounter = 0;
-                        bitsCollected = 0;
-                        byteAcc = 0;
-                    }
-                    break;
-
-                case ST_DATA:
-                    int targetSample = (int) ((bitsCollected + 1.5) * samplesPerBit);
-                    if (sampleCounter >= targetSample) {
-                        if (bitsCollected < 8) {
-                            if (debouncedIsMark) byteAcc |= (1 << bitsCollected);
-                            bitsCollected++;
-                        } else {
-                            if (debouncedIsMark) {
-                                char c = (char) (byteAcc & 0x7F);
-                                if (listener != null) listener.onChar(c);
-                            }
-                            state = ST_IDLE;
-                        }
-                    }
-                    break;
+            if (state == ST_IDLE) {
+                if (!debouncedIsMark) {
+                    state = ST_DATA;
+                    sampleCounter = 0;
+                    byteAcc = 0;
+                    currentSlot = -1;
+                    slotMarkVotes = 0;
+                    slotTotalVotes = 0;
+                }
+            } else { // ST_DATA
+                int slot = sampleCounter / samplesPerBit;
+                if (slot != currentSlot) {
+                    finalizeSlot();
+                    currentSlot = slot;
+                    slotMarkVotes = 0;
+                    slotTotalVotes = 0;
+                }
+                if (state == ST_DATA) {
+                    slotTotalVotes++;
+                    if (lastRawIsMark) slotMarkVotes++;
+                }
             }
         }
     }
 
-    /** 载波能量检测：宽窗口，只回答"现在有没有信号"，不参与具体bit判定 */
+    /** 一个bit窗口结束时，按窗口内多数票决定这一位是mark还是space */
+    private void finalizeSlot() {
+        if (currentSlot < 0 || slotTotalVotes == 0) return;
+        boolean slotIsMark = slotMarkVotes * 2 >= slotTotalVotes;
+
+        if (currentSlot == 0) {
+            // 起始位窗口：必须整体是space，否则是误触发，放弃这一帧
+            if (slotIsMark) {
+                state = ST_IDLE;
+            }
+        } else if (currentSlot >= 1 && currentSlot <= 8) {
+            int dataBitIndex = currentSlot - 1;
+            if (slotIsMark) byteAcc |= (1 << dataBitIndex);
+        } else if (currentSlot == 9) {
+            // 停止位窗口：必须整体是mark，否则丢弃这个字节
+            if (slotIsMark) {
+                char c = (char) (byteAcc & 0x7F);
+                if (listener != null) listener.onChar(c);
+            }
+            state = ST_IDLE;
+        }
+    }
+
     private void recomputeCarrier() {
         lastCarrierMagMark = goertzelMagnitude(carrierRing, carrierRingPos, carrierWindowSamples, F_MARK);
         lastCarrierMagSpace = goertzelMagnitude(carrierRing, carrierRingPos, carrierWindowSamples, F_SPACE);
     }
 
-    /** bit分类：窗口严格等于一个符号周期，避免相邻bit的能量互相污染 */
     private void recomputeBitClassification() {
         float magMark = goertzelMagnitude(bitRing, bitRingPos, samplesPerBit, F_MARK);
         float magSpace = goertzelMagnitude(bitRing, bitRingPos, samplesPerBit, F_SPACE);
@@ -166,9 +185,11 @@ public class Bell202Decoder {
             ratio = (magMark <= 1e-6f) ? Float.MAX_VALUE : magSpace / magMark;
         }
         if (ratio < confidenceThreshold) {
-            rawIsMark = debouncedIsMark;
+            rawIsMark = lastRawIsMark;
         }
+        lastRawIsMark = rawIsMark;
 
+        // 待机状态下用来检测起始边沿的小去抖动
         boolean old = history[historyIdx];
         if (old) historyMarkCount--;
         history[historyIdx] = rawIsMark;
