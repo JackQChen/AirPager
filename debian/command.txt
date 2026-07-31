@@ -1,0 +1,20 @@
+
+alsamixer
+vlc --alsa-audio-device hw:1,0
+
+make -i clean && make
+
+minimodem --rx --alsa=plughw:1,0 1200 -q
+
+echo "Hello World!"|minimodem --tx --alsa=plughw:1,0 1200
+while read line; do echo "$line"; done | minimodem --tx --alsa=plughw:1,0 1200 2>/dev/null
+
+bluetoothctl remove 0A:62:28:18:1B:50
+rm -rf /var/lib/bluetooth/B8:27:EB:B4:B1:61/0A:62:28:18:1B:50
+rm -f /var/lib/bluetooth/B8:27:EB:B4:B1:61/cache/0A:62:28:18:1B:50
+
+arecord -D "bluealsa:DEV=0A:62:28:18:1B:50,PROFILE=a2dp" -f S16_LE -c 2 -r 44100 -t raw 2>/dev/null | sox -r 44100 -e signed -b 16 -c 2 -t raw - -c 1 -t wav - 2>/dev/null | minimodem --rx -f - --quiet 1200
+
+trust AC:37:43:AD:05:0B
+arecord -D bluealsa:DEV=AC:37:43:AD:05:0B,PROFILE=a2dp -f S16_LE -r 44100 -c 2 -d 10 test.wav
+
