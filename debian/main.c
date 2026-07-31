@@ -78,7 +78,7 @@ extern int IIC_Address;
 
 /* ================= 全局状态 ================= */
 static volatile int flag_t = 1;
-static volatile double g_confidence = 1.5;
+static volatile double g_confidence = 2.4;
 static UBYTE *g_img = NULL;
 static pthread_t g_irq_tid;
 
@@ -98,7 +98,7 @@ static Pipeline g_pipe = { .pid = -1, .fd = -1 };
 static int start_pipeline(Pipeline *p, double confidence) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
-        "arecord -D \"bluealsa:DEV=0A:62:28:18:1B:50,PROFILE=a2dp\" "
+        "arecord -D \"bluealsa:DEV=AC:37:43:AD:05:0B,PROFILE=a2dp\" "
         "-f S16_LE -c 2 -r 44100 -t raw 2>/dev/null | "
         "sox -r 44100 -e signed -b 16 -c 2 -t raw - -c 1 -t wav - 2>/dev/null | "
         "minimodem --rx -f - --quiet -c %.1f 1200 2>/dev/null", confidence);
